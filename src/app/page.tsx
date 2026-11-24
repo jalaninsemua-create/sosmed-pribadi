@@ -26,6 +26,8 @@ interface Notice {
   type: 'success' | 'error';
 }
 
+const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 export default function Dashboard() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -164,23 +166,92 @@ export default function Dashboard() {
   const handleRunWorker = async () => {
     setRunningWorker(true);
     try {
-      const { data } = await supabase.auth.getSession();
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
       const accessToken = data.session?.access_token;
       if (!accessToken) {
         router.push('/login');
         return;
       }
 
-      const response = await fetch('/api/run-worker', {
+      const { data: dueTasks, error: dueTasksError } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('status', 'pending')
+        .lte('scheduled_at', new Date().toISOString());
+      if (dueTasksError) throw dueTasksError;
+
+      const taskIds = dueTasks.map((task) => task.id);
+      if (taskIds.length === 0) {
+        setNotice({
+          title: 'Tidak ada tugas',
+          message: 'Tidak ada tugas yang sudah jatuh tempo untuk dijalankan.',
+          type: 'success',
+        });
+        return;
+      }
+
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      const response = await fetch(isDevelopment ? '/api/run-worker' : '/.netlify/functions/run-worker-background', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const result = (await response.json()) as { ok: boolean; message: string };
-      setNotice({
-        title: result.ok ? 'Tugas selesai' : 'Tugas selesai dengan kendala',
-        message: result.message,
-        type: result.ok ? 'success' : 'error',
-      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Worker tidak dapat dimulai (HTTP ${response.status}). Periksa status deploy dan log function Netlify.`
+        );
+      }
+
+      if (isDevelopment) {
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error(`Server mengembalikan respons tidak valid (HTTP ${response.status}).`);
+        }
+        const result = (await response.json()) as { ok: boolean; message: string };
+        setNotice({
+          title: result.ok ? 'Tugas selesai' : 'Tugas selesai dengan kendala',
+          message: result.message,
+          type: result.ok ? 'success' : 'error',
+        });
+      } else {
+        const startedAt = Date.now();
+        let workerStarted = false;
+        const startTimeout = 60 * 1000;
+        const completionTimeout = 14 * 60 * 1000;
+
+        while (Date.now() - startedAt < completionTimeout) {
+          await delay(2000);
+          const { data: currentTasks, error: statusError } = await supabase
+            .from('tasks')
+            .select('id, status')
+            .in('id', taskIds);
+          if (statusError) throw statusError;
+
+          if (currentTasks.some((task) => task.status === 'processing')) workerStarted = true;
+          if (
+            currentTasks.length === taskIds.length &&
+            currentTasks.every((task) => task.status === 'success' || task.status === 'failed')
+          ) {
+            const succeeded = currentTasks.filter((task) => task.status === 'success').length;
+            const failed = currentTasks.length - succeeded;
+            setNotice({
+              title: failed === 0 ? 'Tugas selesai' : 'Tugas selesai dengan kendala',
+              message: `Worker selesai. Berhasil: ${succeeded}, gagal: ${failed}. Periksa log di tabel antrean.`,
+              type: failed === 0 ? 'success' : 'error',
+            });
+            break;
+          }
+
+          if (!workerStarted && Date.now() - startedAt >= startTimeout) {
+            throw new Error('Worker belum mulai memproses antrean. Periksa deployment dan log function Netlify.');
+          }
+        }
+
+        if (Date.now() - startedAt >= completionTimeout) {
+          throw new Error('Worker belum selesai setelah 14 menit. Periksa status antrean dan log function Netlify.');
+        }
+      }
       await fetchData();
     } catch (error) {
       setNotice({

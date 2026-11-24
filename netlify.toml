@@ -5,5 +5,12 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  included_files = [
+    "worker.js",
+    "node_modules/@sparticuz/chromium-min/**",
+    "node_modules/modern-tar/**"
+  ]
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"

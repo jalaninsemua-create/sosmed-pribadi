@@ -42,6 +42,7 @@
 - Keep scheduled-task ordering and delay calculations deterministic enough to be testable; avoid unrelated randomness changes.
 - Browser automation selectors are platform-specific and often unstable. Prefer existing `aria-label`/role selectors and document why a locator change is needed.
 - Keep the worker on direct Playwright with `@sparticuz/chromium-min` for Netlify's serverless browser runtime; avoid dynamically loaded browser plugins and keep the Chromium pack URL/version aligned with the package.
+- Run long production jobs through `netlify/functions/run-worker-background.js`; the dashboard should track task status instead of waiting for a synchronous function response.
 
 ## UI and state
 
