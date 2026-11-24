@@ -103,7 +103,7 @@ async function executeTask(task) {
         console.log(`  -> Berhasil klik Like`);
         await sleep(randomBetween(3000, 6000));
       } else {
-        console.log(`  -> Tombol Like tidak ditemukan / sudah di-like`);
+        throw new Error('Tombol Like tidak ditemukan; tindakan tidak dapat dikonfirmasi.');
       }
     }
 
@@ -136,9 +136,13 @@ async function executeTask(task) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Kesalahan tidak diketahui.';
     console.error(`[GAGAL] Task ${task.id}:`, message);
+    const logMessage =
+      message === 'Tombol Like tidak ditemukan; tindakan tidak dapat dikonfirmasi.'
+        ? `MANUAL_LIKE_REQUIRED: ${message}`
+        : message;
     await supabase
       .from('tasks')
-      .update({ status: 'failed', log_message: message })
+      .update({ status: 'failed', log_message: logMessage })
       .eq('id', task.id);
     return false;
   } finally {

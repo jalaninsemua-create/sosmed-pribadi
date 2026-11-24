@@ -27,6 +27,7 @@ interface Notice {
 }
 
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const manualLikeMarker = 'MANUAL_LIKE_REQUIRED:';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -48,6 +49,7 @@ export default function Dashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [runningWorker, setRunningWorker] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [completingManualTaskId, setCompletingManualTaskId] = useState<string | null>(null);
 
   const fetchData = async () => {
     const { data: accData } = await supabase.from('accounts').select('id, name, proxy, status').order('created_at', { ascending: false });
@@ -224,7 +226,7 @@ export default function Dashboard() {
           await delay(2000);
           const { data: currentTasks, error: statusError } = await supabase
             .from('tasks')
-            .select('id, status')
+            .select('id, status, log_message')
             .in('id', taskIds);
           if (statusError) throw statusError;
 
@@ -234,10 +236,11 @@ export default function Dashboard() {
             currentTasks.every((task) => task.status === 'success' || task.status === 'failed')
           ) {
             const succeeded = currentTasks.filter((task) => task.status === 'success').length;
-            const failed = currentTasks.length - succeeded;
+            const manual = currentTasks.filter((task) => task.log_message?.startsWith(manualLikeMarker)).length;
+            const failed = currentTasks.length - succeeded - manual;
             setNotice({
-              title: failed === 0 ? 'Tugas selesai' : 'Tugas selesai dengan kendala',
-              message: `Worker selesai. Berhasil: ${succeeded}, gagal: ${failed}. Periksa log di tabel antrean.`,
+              title: manual > 0 ? 'Perlu tindakan manual' : failed === 0 ? 'Tugas selesai' : 'Tugas selesai dengan kendala',
+              message: `Worker selesai. Berhasil: ${succeeded}, perlu manual: ${manual}, gagal: ${failed}. Buka postingan dari tabel untuk menyelesaikan tugas manual.`,
               type: failed === 0 ? 'success' : 'error',
             });
             break;
@@ -261,6 +264,42 @@ export default function Dashboard() {
       });
     } finally {
       setRunningWorker(false);
+    }
+  };
+
+  const handleCompleteManualTask = async (taskId: string) => {
+    setCompletingManualTaskId(taskId);
+    try {
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/complete-manually`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Server mengembalikan respons tidak valid (HTTP ${response.status}).`);
+      }
+
+      const result = (await response.json()) as { message: string };
+      if (!response.ok) throw new Error(result.message || `Gagal memperbarui tugas (HTTP ${response.status}).`);
+
+      await fetchData();
+      setNotice({ title: 'Tugas diperbarui', message: result.message, type: 'success' });
+    } catch (error) {
+      setNotice({
+        title: 'Gagal memperbarui tugas',
+        message: error instanceof Error ? error.message : 'Gagal memperbarui tugas manual.',
+        type: 'error',
+      });
+    } finally {
+      setCompletingManualTaskId(null);
     }
   };
 
@@ -443,28 +482,64 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {tasks.map((t) => (
-                  <tr key={t.id}>
-                    <td className="p-2 font-medium">{t.accounts?.name}</td>
-                    <td className="p-2 uppercase text-xs">{t.campaigns?.action_type}</td>
-                    <td className="p-2 truncate max-w-xs">{t.comment_text || '-'}</td>
-                    <td className="p-2 text-xs">{new Date(t.scheduled_at).toLocaleTimeString('id-ID')}</td>
-                    <td className="p-2">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          t.status === 'success'
-                            ? 'bg-green-100 text-green-700'
-                            : t.status === 'failed'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}
-                      >
-                        {t.status}
-                      </span>
-                    </td>
-                    <td className="p-2 text-xs text-gray-500">{t.log_message || '-'}</td>
-                  </tr>
-                ))}
+                {tasks.map((t) => {
+                  const needsManualLike = t.log_message?.startsWith(manualLikeMarker) ?? false;
+                  const logMessage = needsManualLike
+                    ? t.log_message?.slice(manualLikeMarker.length).trim()
+                    : t.log_message;
+
+                  return (
+                    <tr key={t.id}>
+                      <td className="p-2 font-medium">{t.accounts?.name}</td>
+                      <td className="p-2 uppercase text-xs">{t.campaigns?.action_type}</td>
+                      <td className="p-2 truncate max-w-xs">{t.comment_text || '-'}</td>
+                      <td className="p-2 text-xs">{new Date(t.scheduled_at).toLocaleTimeString('id-ID')}</td>
+                      <td className="p-2">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            needsManualLike
+                              ? 'bg-orange-100 text-orange-700'
+                              : t.status === 'success'
+                              ? 'bg-green-100 text-green-700'
+                              : t.status === 'failed'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-yellow-100 text-yellow-700'
+                          }`}
+                        >
+                          {needsManualLike ? 'manual' : t.status}
+                        </span>
+                      </td>
+                      <td className="p-2 text-xs text-gray-500">
+                        <p>{logMessage || '-'}</p>
+                        {needsManualLike && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <a
+                              href={t.campaigns?.target_url || '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 underline"
+                            >
+                              Buka postingan
+                            </a>
+                            {t.comment_text && (
+                              <span className="text-orange-700">
+                                Jika komentar juga diperlukan, kirim komentar yang tertera secara manual.
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleCompleteManualTask(t.id)}
+                              disabled={completingManualTaskId === t.id}
+                              className="rounded bg-green-600 px-2 py-1 text-white hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {completingManualTaskId === t.id ? 'Menyimpan...' : 'Saya sudah selesai manual'}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
