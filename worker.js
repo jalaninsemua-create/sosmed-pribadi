@@ -1,8 +1,10 @@
 require('dotenv').config({ path: '.env.local' });
 const { createClient } = require('@supabase/supabase-js');
-const { chromium } = require('playwright-extra');
+const { chromium: playwrightChromium } = require('playwright');
+const { addExtra } = require('playwright-extra');
 const stealth = require('puppeteer-extra-plugin-stealth')();
 
+const chromium = addExtra(playwrightChromium);
 chromium.use(stealth);
 
 const supabase = createClient(
