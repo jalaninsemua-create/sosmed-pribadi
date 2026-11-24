@@ -1,11 +1,6 @@
 require('dotenv').config({ path: '.env.local' });
 const { createClient } = require('@supabase/supabase-js');
-const { chromium: playwrightChromium } = require('playwright');
-const { addExtra } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth')();
-
-const chromium = addExtra(playwrightChromium);
-chromium.use(stealth);
+const { chromium } = require('playwright');
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -48,10 +43,14 @@ function parseProxy(proxyStr) {
 
 async function executeTask(task) {
   console.log(`[MULAI] Task ${task.id} untuk akun: ${task.accounts.name}`);
-  await supabase.from('tasks').update({ status: 'processing' }).eq('id', task.id);
-
   let browser;
   try {
+    const { error: processingError } = await supabase
+      .from('tasks')
+      .update({ status: 'processing' })
+      .eq('id', task.id);
+    if (processingError) throw processingError;
+
     browser = await chromium.launch({
       headless: true,
       proxy: parseProxy(task.accounts.proxy),
@@ -109,17 +108,21 @@ async function executeTask(task) {
       }
     }
 
-    await supabase
+    const { error: successError } = await supabase
       .from('tasks')
       .update({ status: 'success', log_message: 'Selesai dieksekusi' })
       .eq('id', task.id);
+    if (successError) throw successError;
     console.log(`[SELESAI] Task ${task.id} sukses.`);
+    return true;
   } catch (err) {
-    console.error(`[GAGAL] Task ${task.id}:`, err.message);
+    const message = err instanceof Error ? err.message : 'Kesalahan tidak diketahui.';
+    console.error(`[GAGAL] Task ${task.id}:`, message);
     await supabase
       .from('tasks')
-      .update({ status: 'failed', log_message: err.message })
+      .update({ status: 'failed', log_message: message })
       .eq('id', task.id);
+    return false;
   } finally {
     if (browser) await browser.close();
   }
@@ -162,15 +165,16 @@ async function runDueTasksOnce() {
 
   if (!tasks || tasks.length === 0) {
     console.log('Tidak ada tugas yang sudah jatuh tempo.');
-    return 0;
+    return { total: 0, succeeded: 0, failed: 0 };
   }
 
   console.log(`Menjalankan ${tasks.length} tugas yang sudah jatuh tempo...`);
+  let succeeded = 0;
   for (const task of tasks) {
-    await executeTask(task);
+    if (await executeTask(task)) succeeded += 1;
   }
 
-  return tasks.length;
+  return { total: tasks.length, succeeded, failed: tasks.length - succeeded };
 }
 
 module.exports = { runDueTasksOnce };

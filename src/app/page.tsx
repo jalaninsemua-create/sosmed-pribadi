@@ -20,6 +20,12 @@ interface Task {
   campaigns: { target_url: string; action_type: string } | null;
 }
 
+interface Notice {
+  title: string;
+  message: string;
+  type: 'success' | 'error';
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -39,6 +45,7 @@ export default function Dashboard() {
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [runningWorker, setRunningWorker] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const fetchData = async () => {
     const { data: accData } = await supabase.from('accounts').select('id, name, proxy, status').order('created_at', { ascending: false });
@@ -64,7 +71,11 @@ export default function Dashboard() {
     try {
       JSON.parse(accCookies); // Validasi format JSON dari Cookie-Editor
     } catch {
-      alert('Format Cookies harus berupa JSON valid dari ekstensi Cookie-Editor!');
+      setNotice({
+        title: 'Format tidak valid',
+        message: 'Format Cookies harus berupa JSON valid dari ekstensi Cookie-Editor!',
+        type: 'error',
+      });
       return;
     }
 
@@ -75,18 +86,22 @@ export default function Dashboard() {
       status: 'active',
     });
 
-    if (error) alert(error.message);
+    if (error) setNotice({ title: 'Gagal menyimpan akun', message: error.message, type: 'error' });
     else {
       setAccName('');
       setAccCookies('');
       setAccProxy('');
       fetchData();
+      setNotice({ title: 'Berhasil', message: 'Akun berhasil disimpan.', type: 'success' });
     }
   };
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedAccounts.length === 0) return alert('Pilih minimal 1 akun FB!');
+    if (selectedAccounts.length === 0) {
+      setNotice({ title: 'Akun belum dipilih', message: 'Pilih minimal 1 akun FB!', type: 'error' });
+      return;
+    }
 
     setSubmitting(true);
     const { data: campaign, error: campErr } = await supabase
@@ -96,7 +111,11 @@ export default function Dashboard() {
       .single();
 
     if (campErr || !campaign) {
-      alert('Gagal membuat kampanye: ' + campErr?.message);
+      setNotice({
+        title: 'Gagal membuat kampanye',
+        message: campErr?.message || 'Kampanye tidak dapat dibuat.',
+        type: 'error',
+      });
       setSubmitting(false);
       return;
     }
@@ -122,13 +141,18 @@ export default function Dashboard() {
     });
 
     const { error: taskErr } = await supabase.from('tasks').insert(taskRows);
-    if (taskErr) alert('Gagal membuat antrean: ' + taskErr.message);
-    else {
+    if (taskErr) {
+      setNotice({ title: 'Gagal membuat antrean', message: taskErr.message, type: 'error' });
+    } else {
       setTargetUrl('');
       setCommentsRaw('');
       setSelectedAccounts([]);
       fetchData();
-      alert(`${taskRows.length} antrean berhasil dijadwalkan!`);
+      setNotice({
+        title: 'Antrean dijadwalkan',
+        message: `${taskRows.length} antrean berhasil dijadwalkan!`,
+        type: 'success',
+      });
     }
     setSubmitting(false);
   };
@@ -152,10 +176,18 @@ export default function Dashboard() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const result = (await response.json()) as { ok: boolean; message: string };
-      alert(result.message);
+      setNotice({
+        title: result.ok ? 'Tugas selesai' : 'Tugas selesai dengan kendala',
+        message: result.message,
+        type: result.ok ? 'success' : 'error',
+      });
       await fetchData();
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Gagal menjalankan worker.');
+      setNotice({
+        title: 'Gagal menjalankan worker',
+        message: error instanceof Error ? error.message : 'Gagal menjalankan worker.',
+        type: 'error',
+      });
     } finally {
       setRunningWorker(false);
     }
@@ -367,6 +399,51 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      {runningWorker && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/50 p-4"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-col items-center gap-4 rounded-xl bg-white px-8 py-6 text-center shadow-xl">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-purple-200 border-t-purple-600" />
+            <div>
+              <p className="font-semibold text-gray-900">Sedang menjalankan tugas</p>
+              <p className="mt-1 text-sm text-gray-500">Mohon tunggu, proses sedang berlangsung.</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {notice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="notice-title"
+            aria-describedby="notice-message"
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+          >
+            <h2
+              id="notice-title"
+              className={`text-lg font-semibold ${notice.type === 'success' ? 'text-green-700' : 'text-red-700'}`}
+            >
+              {notice.title}
+            </h2>
+            <p id="notice-message" className="mt-2 whitespace-pre-wrap text-sm text-gray-600">
+              {notice.message}
+            </p>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

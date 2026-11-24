@@ -23,11 +23,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const processedCount = await worker.runDueTasksOnce();
+    const summary = await worker.runDueTasksOnce();
     return NextResponse.json({
-      ok: true,
-      message: processedCount
-        ? `Worker selesai. ${processedCount} tugas sudah diproses.`
+      ok: summary.failed === 0,
+      message: summary.total
+        ? `Worker selesai. Berhasil: ${summary.succeeded}, gagal: ${summary.failed}. Periksa log di tabel antrean.`
         : 'Tidak ada tugas yang sudah jatuh tempo.',
     });
   } catch (error) {

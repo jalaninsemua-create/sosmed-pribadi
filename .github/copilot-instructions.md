@@ -5,7 +5,7 @@
 - This is a small Next.js App Router dashboard backed by Supabase.
 - The authenticated dashboard UI is in `src/app/page.tsx`; login is in `src/app/login/page.tsx`.
 - The browser-side Supabase client is in `src/lib/supabase.ts`.
-- `worker.js` polls Supabase for scheduled tasks and uses Playwright, stealth browser tooling, cookies, and optional proxies to execute actions.
+- `worker.js` polls Supabase for scheduled tasks and uses Playwright, cookies, and optional proxies to execute actions.
 - The project primarily uses JavaScript and TypeScript/TSX; keep changes consistent with each file's existing style.
 - The repository currently has no test suite or package scripts declared in `package.json`.
 
@@ -41,6 +41,7 @@
 - Keep polling safe: handle Supabase errors, close browser resources in `finally`, and avoid tight or unbounded retry behavior.
 - Keep scheduled-task ordering and delay calculations deterministic enough to be testable; avoid unrelated randomness changes.
 - Browser automation selectors are platform-specific and often unstable. Prefer existing `aria-label`/role selectors and document why a locator change is needed.
+- Keep the worker on the direct `playwright` package; avoid dynamically loaded browser plugins that can be omitted from serverless bundles.
 
 ## UI and state
 
