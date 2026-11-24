@@ -41,7 +41,7 @@
 - Keep polling safe: handle Supabase errors, close browser resources in `finally`, and avoid tight or unbounded retry behavior.
 - Keep scheduled-task ordering and delay calculations deterministic enough to be testable; avoid unrelated randomness changes.
 - Browser automation selectors are platform-specific and often unstable. Prefer existing `aria-label`/role selectors and document why a locator change is needed.
-- Keep the worker on the direct `playwright` package; avoid dynamically loaded browser plugins that can be omitted from serverless bundles.
+- Keep the worker on direct Playwright with `@sparticuz/chromium-min` for Netlify's serverless browser runtime; avoid dynamically loaded browser plugins and keep the Chromium pack URL/version aligned with the package.
 
 ## UI and state
 

@@ -1,14 +1,35 @@
 require('dotenv').config({ path: '.env.local' });
 const { createClient } = require('@supabase/supabase-js');
-const { chromium } = require('playwright');
+const { chromium: playwrightChromium } = require('playwright');
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const CHROMIUM_VERSION = '158.0.0';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+function getChromiumPackUrl() {
+  const architecture = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x64' : null;
+  if (!architecture) {
+    throw new Error(`Arsitektur server tidak didukung untuk Chromium: ${process.arch}`);
+  }
+
+  return `https://github.com/Sparticuz/chromium/releases/download/v${CHROMIUM_VERSION}/chromium-v${CHROMIUM_VERSION}-pack.${architecture}.tar`;
+}
+
+async function launchBrowser(proxy) {
+  const { default: serverlessChromium } = await import('@sparticuz/chromium-min');
+  const executablePath = await serverlessChromium.executablePath(getChromiumPackUrl());
+  return playwrightChromium.launch({
+    args: serverlessChromium.args,
+    executablePath,
+    headless: true,
+    proxy,
+  });
+}
 
 // Normalisasi format JSON dari ekstensi Cookie-Editor agar diterima Playwright
 function formatCookiesForPlaywright(rawJson) {
@@ -51,10 +72,7 @@ async function executeTask(task) {
       .eq('id', task.id);
     if (processingError) throw processingError;
 
-    browser = await chromium.launch({
-      headless: true,
-      proxy: parseProxy(task.accounts.proxy),
-    });
+    browser = await launchBrowser(parseProxy(task.accounts.proxy));
 
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },

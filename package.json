@@ -8,6 +8,7 @@
     "worker": "node worker.js"
   },
   "dependencies": {
+    "@sparticuz/chromium-min": "158.0.0",
     "@supabase/supabase-js": "^2.119.2",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
