@@ -38,6 +38,7 @@ export default function Dashboard() {
   const [maxDelay, setMaxDelay] = useState(180);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [runningWorker, setRunningWorker] = useState(false);
 
   const fetchData = async () => {
     const { data: accData } = await supabase.from('accounts').select('id, name, proxy, status').order('created_at', { ascending: false });
@@ -136,12 +137,44 @@ export default function Dashboard() {
     setSelectedAccounts((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
+  const handleRunWorker = async () => {
+    setRunningWorker(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch('/api/run-worker', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = (await response.json()) as { ok: boolean; message: string };
+      alert(result.message);
+      await fetchData();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Gagal menjalankan worker.');
+    } finally {
+      setRunningWorker(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-6 text-gray-800">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow">
           <h1 className="text-xl font-bold">FB Engagement Controller</h1>
           <div className="space-x-2">
+            <button
+              type="button"
+              onClick={handleRunWorker}
+              disabled={runningWorker}
+              className="px-3 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 disabled:opacity-50"
+            >
+              {runningWorker ? 'Menjalankan...' : 'Jalankan Tugas'}
+            </button>
             <button onClick={fetchData} className="px-3 py-1.5 bg-gray-200 rounded text-sm hover:bg-gray-300">
               Refresh Data
             </button>

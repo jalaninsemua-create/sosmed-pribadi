@@ -145,4 +145,37 @@ async function startWorker() {
   }
 }
 
-startWorker();
+async function runDueTasksOnce() {
+  const now = new Date().toISOString();
+  const { data: tasks, error } = await supabase
+    .from('tasks')
+    .select('*, accounts(*), campaigns(*)')
+    .eq('status', 'pending')
+    .lte('scheduled_at', now)
+    .order('scheduled_at', { ascending: true });
+
+  if (error) {
+    throw new Error(`Error polling Supabase: ${error.message}`);
+  }
+
+  if (!tasks || tasks.length === 0) {
+    console.log('Tidak ada tugas yang sudah jatuh tempo.');
+    return;
+  }
+
+  console.log(`Menjalankan ${tasks.length} tugas yang sudah jatuh tempo...`);
+  for (const task of tasks) {
+    await executeTask(task);
+  }
+}
+
+if (process.argv.includes('--once')) {
+  runDueTasksOnce()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err.message);
+      process.exit(1);
+    });
+} else {
+  startWorker();
+}
