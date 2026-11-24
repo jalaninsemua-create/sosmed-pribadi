@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import worker from '../../../../worker.js';
 
 export const runtime = 'nodejs';
 
@@ -22,57 +22,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: 'Sesi login telah berakhir.' }, { status: 401 });
   }
 
-  const output: string[] = [];
-
-  const exitCode = await new Promise<number | NextResponse>((resolve) => {
-    const child = spawn(process.execPath, ['worker.js', '--once'], {
-      cwd: process.cwd(),
-      env: process.env,
+  try {
+    const processedCount = await worker.runDueTasksOnce();
+    return NextResponse.json({
+      ok: true,
+      message: processedCount
+        ? `Worker selesai. ${processedCount} tugas sudah diproses.`
+        : 'Tidak ada tugas yang sudah jatuh tempo.',
     });
-
-    let settled = false;
-    const finish = (code: number) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve(code);
-    };
-
-    child.stdout.on('data', (chunk) => output.push(chunk.toString()));
-    child.stderr.on('data', (chunk) => output.push(chunk.toString()));
-    child.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve(NextResponse.json({ ok: false, message: error.message }, { status: 500 }));
-    });
-    child.on('close', (code) => finish(code ?? 1));
-
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill('SIGTERM');
-      resolve(
-        NextResponse.json(
-          { ok: false, message: 'Eksekusi worker melewati batas waktu.' },
-          { status: 504 }
-        )
-      );
-    }, 5 * 60 * 1000);
-  });
-
-  if (exitCode instanceof NextResponse) return exitCode;
-
-  const message = output.join('').trim();
-  if (exitCode !== 0) {
+  } catch (error) {
+    console.error('Gagal menjalankan worker:', error);
     return NextResponse.json(
-      { ok: false, message: message || 'Worker gagal dijalankan.' },
+      {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Worker gagal dijalankan.',
+      },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({
-    ok: true,
-    message: message || 'Worker selesai dijalankan.',
-  });
 }

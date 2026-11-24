@@ -160,22 +160,28 @@ async function runDueTasksOnce() {
 
   if (!tasks || tasks.length === 0) {
     console.log('Tidak ada tugas yang sudah jatuh tempo.');
-    return;
+    return 0;
   }
 
   console.log(`Menjalankan ${tasks.length} tugas yang sudah jatuh tempo...`);
   for (const task of tasks) {
     await executeTask(task);
   }
+
+  return tasks.length;
 }
 
-if (process.argv.includes('--once')) {
-  runDueTasksOnce()
-    .then(() => process.exit(0))
-    .catch((err) => {
-      console.error(err.message);
-      process.exit(1);
-    });
-} else {
-  startWorker();
+module.exports = { runDueTasksOnce };
+
+if (require.main === module) {
+  if (process.argv.includes('--once')) {
+    runDueTasksOnce()
+      .then(() => process.exit(0))
+      .catch((err) => {
+        console.error(err.message);
+        process.exit(1);
+      });
+  } else {
+    startWorker();
+  }
 }
